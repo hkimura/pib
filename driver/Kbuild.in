@@ -1,0 +1,5 @@
+obj-m := @MODULE_NAME@.o
+@MODULE_NAME@-objs += @kbuild_in_outputs_space_separated@
+
+EXTRA_CFLAGS := -I@MODULE_OUTPUT_DIR@
+EXTRA_CFLAGS += @kbuild_in_ddebug@
