@@ -5,8 +5,8 @@ find_package(Threads REQUIRED)
 # These two cmake scripts are from https://github.com/biddisco/rdmahelper/
 find_package(IB_VERBS REQUIRED)
 include_directories(${IB_VERBS_INCLUDE_DIRS})
-# find_package(RDMA_CM REQUIRED)
-# include_directories(${RDMA_CM_INCLUDE_DIRS})
+find_package(RDMA_CM REQUIRED)
+include_directories(${RDMA_CM_INCLUDE_DIRS})
 
 set(test_dependencies ${IB_VERBS_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} rt m)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -D_GNU_SOURCE")
@@ -29,7 +29,11 @@ target_link_libraries(qp-roundrobin ${test_dependencies})
 add_executable(query_pkey query_pkey.c)
 target_link_libraries(query_pkey ${test_dependencies})
 
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-strict-aliasing")
 add_executable(hk_playground hk_playground.cpp)
-target_link_libraries(hk_playground ${test_dependencies})
+target_link_libraries(hk_playground ${test_dependencies} ${RDMA_CM_LIBRARIES})
+
+add_executable(hk_farm_like hk_farm_like.cpp)
+target_link_libraries(hk_farm_like ${test_dependencies} ${RDMA_CM_LIBRARIES})
+
+add_subdirectory(cm_examples)
