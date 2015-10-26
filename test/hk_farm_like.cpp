@@ -40,18 +40,6 @@ void zap() {
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
-struct rdma_event_channel *rdma_create_event_channel(void);
-const auto kEventChanDeleter = [](rdma_event_channel* p) { ::rdma_destroy_event_channel(p); };
-class EventChanAutoDel
-  : public std::unique_ptr< rdma_event_channel, decltype(kEventChanDeleter) > {
- public:
-  EventChanAutoDel()
-    : std::unique_ptr< rdma_event_channel, decltype(kEventChanDeleter) >(
-        nullptr,
-        kEventChanDeleter) {
-  }
-};
-
 const auto kAddrDeleter = [](rdma_addrinfo* p) { ::rdma_freeaddrinfo(p); };
 class AddrInfoAutoDel : public std::unique_ptr< rdma_addrinfo, decltype(kAddrDeleter) > {
  public:
@@ -60,20 +48,37 @@ class AddrInfoAutoDel : public std::unique_ptr< rdma_addrinfo, decltype(kAddrDel
   }
 };
 
-const auto kPdDeleter = [](ibv_pd* p) { ::ibv_dealloc_pd(p); };
-class PdAutoDel : public std::unique_ptr< ibv_pd, decltype(kPdDeleter) > {
+// this one is a bit more complex, so can't simply use unique_ptr
+class EpContainer {
  public:
-  PdAutoDel()
-    : std::unique_ptr< ibv_pd, decltype(kPdDeleter) >(nullptr, kPdDeleter) {
+  EpContainer() : cm_id_(nullptr), needs_disconnect_(false) {
   }
-};
+  ~EpContainer() {
+    release();
+  }
+  void reset(rdma_cm_id* cm_id) {
+    release();
+    cm_id_ = cm_id;
+    needs_disconnect_ = false;
+  }
+  void on_connect() {
+    needs_disconnect_  = true;
+  }
 
-const auto kEpDeleter = [](rdma_cm_id* p) { ::rdma_destroy_ep(p); };
-class EpAutoDel : public std::unique_ptr< rdma_cm_id, decltype(kEpDeleter) > {
- public:
-  EpAutoDel()
-    : std::unique_ptr< rdma_cm_id, decltype(kEpDeleter) >(nullptr, kEpDeleter) {
+  void release() {
+    if (cm_id_) {
+      if (needs_disconnect_) {
+        ::rdma_disconnect(cm_id_);
+        needs_disconnect_ = false;
+      }
+      ::rdma_destroy_ep(cm_id_);
+      cm_id_ = nullptr;
+    }
   }
+  rdma_cm_id* get() { return cm_id_; }
+
+  rdma_cm_id* cm_id_;
+  bool        needs_disconnect_;
 };
 
 const auto kCmIdDeleter = [](rdma_cm_id* p) { ::rdma_destroy_id(p); };
@@ -84,11 +89,11 @@ class CmIdAutoDel : public std::unique_ptr< rdma_cm_id, decltype(kCmIdDeleter) >
   }
 };
 
-const auto kEpDisconnect = [](rdma_cm_id* p) { ::rdma_disconnect(p); };
-class ClientAutoDisconn : public std::unique_ptr< rdma_cm_id, decltype(kEpDisconnect) > {
+const auto kDisconnect = [](rdma_cm_id* p) { ::rdma_disconnect(p); };
+class AutoDisconn : public std::unique_ptr< rdma_cm_id, decltype(kDisconnect) > {
  public:
-  ClientAutoDisconn()
-    : std::unique_ptr< rdma_cm_id, decltype(kEpDisconnect) >(nullptr, kEpDisconnect) {
+  AutoDisconn()
+    : std::unique_ptr< rdma_cm_id, decltype(kDisconnect) >(nullptr, kDisconnect) {
   }
 };
 
@@ -228,9 +233,7 @@ class NodeThread {
     bool listen_first)
     : name_(name),
       listen_first_(listen_first),
-      send_array_(new char[kSendArray]),
-      remote_addr_base_(0),
-      remote_rkey_(0) {
+      send_array_(new char[kSendArray]) {
   }
   ~NodeThread() {
     delete[] send_array_;
@@ -269,8 +272,8 @@ class NodeThread {
 
   int init_each_other(rdma_cm_id* other);
 
-  int test_write();
-  int test_read();
+  int test_write(rdma_cm_id* other);
+  int test_read(rdma_cm_id* other);
 
   const std::string name_;
   const bool listen_first_;
@@ -279,18 +282,14 @@ class NodeThread {
   SharedCircularBufferContainer container_;
 
   AddrInfoAutoDel addr_;
-  EpAutoDel server_ep_;
-  EpAutoDel client_ep_;
-  ClientAutoDisconn client_;
+  EpContainer server_ep_;
+  EpContainer client_ep_;
   MrAutoDel recv_mr_;
   MrAutoDel send_mr_;
   InitPacket my_init_packet_;
   InitPacket other_init_packet_;
   MrAutoDel my_init_mr_;
   MrAutoDel other_init_mr_;
-
-  uint64_t  remote_addr_base_;
-  uint32_t  remote_rkey_;
 
   std::thread myself_thread_;
 };
@@ -430,7 +429,7 @@ int NodeThread::connect_to_client() {
     std::cerr << name_ << ": rdma_get_request failed " << std::strerror(errno);
     return errno;
   }
-  client_.reset(client_id);
+  client_ep_.reset(client_id);
 
   std::cout << name_ << ": rdma_accept..." << std::endl;
   zap();
@@ -440,6 +439,7 @@ int NodeThread::connect_to_client() {
     return errno;
   }
 
+  client_ep_.on_connect();
   return 0;
 }
 
@@ -452,6 +452,7 @@ int NodeThread::connect_to_server() {
     return ret;
   }
 
+  server_ep_.on_connect();
   return 0;
 }
 
@@ -503,12 +504,12 @@ int NodeThread::init_each_other(rdma_cm_id* other) {
     return ret;
   }
 
+  zap();
   std::cout << name_ << ": other_init_pack=" << other_init_packet_ << std::endl;
-
   return 0;
 }
 
-int NodeThread::test_read() {
+int NodeThread::test_read(rdma_cm_id* other) {
   std::cout << name_ << ": waiting for other's write..." << std::endl;
 
   uint32_t cur_place = 0;  // so far only one message used.
@@ -522,7 +523,7 @@ int NodeThread::test_read() {
   return 0;
 }
 
-int NodeThread::test_write() {
+int NodeThread::test_write(rdma_cm_id* other) {
   std::cout << name_ << ": writing to other's memory..." << std::endl;
 
   Message* send_buffer = reinterpret_cast<Message*>(send_array_);
@@ -533,14 +534,14 @@ int NodeThread::test_write() {
   uint32_t cur_place = 0;  // so far only one message used.
   uint32_t msg_len = send_buffer->header_.get_message_length();
   int ret = ::rdma_post_write(
-    client_.get(),
+    other,
     nullptr,
     send_buffer,
     msg_len,
     send_mr_.get(),
     0,
-    remote_addr_base_ + cur_place,
-    remote_rkey_);
+    other_init_packet_.buffer_addr_base_ + cur_place,
+    other_init_packet_.buffer_rkey_);
   if (ret) {
     std::cerr << name_ << ": rdma_post_write failed " << std::strerror(errno) << std::endl;
     return ret;
@@ -578,15 +579,15 @@ int NodeThread::thread_main_impl() {
   if (listen_first_) {
     CHECK_RET(connect_to_client());
 
-    CHECK_RET(reg_buffer_mr(client_->pd));
-    CHECK_RET(reg_send_array_mr(client_->pd));
-    CHECK_RET(reg_init_packets_mr(client_->pd));
+    CHECK_RET(reg_buffer_mr(client_ep_.get()->pd));
+    CHECK_RET(reg_send_array_mr(client_ep_.get()->pd));
+    CHECK_RET(reg_init_packets_mr(client_ep_.get()->pd));
 
-    CHECK_RET(init_each_other(client_.get()));
+    CHECK_RET(init_each_other(client_ep_.get()));
   } else {
-    CHECK_RET(reg_buffer_mr(server_ep_->pd));
-    CHECK_RET(reg_send_array_mr(server_ep_->pd));
-    CHECK_RET(reg_init_packets_mr(server_ep_->pd));
+    CHECK_RET(reg_buffer_mr(server_ep_.get()->pd));
+    CHECK_RET(reg_send_array_mr(server_ep_.get()->pd));
+    CHECK_RET(reg_init_packets_mr(server_ep_.get()->pd));
 
     CHECK_RET(connect_to_server());
 
@@ -594,15 +595,13 @@ int NodeThread::thread_main_impl() {
   }
 
   std::cout << name_ << " establishied a bi-directional connection!" << std::endl;
-/*
   if (listen_first_) {
-    CHECK_RET(test_read());
-    CHECK_RET(test_write());
+    CHECK_RET(test_read(client_ep_.get()));
+    CHECK_RET(test_write(client_ep_.get()));
   } else {
-    CHECK_RET(test_write());
-    CHECK_RET(test_read());
+    CHECK_RET(test_write(server_ep_.get()));
+    CHECK_RET(test_read(server_ep_.get()));
   }
-*/
   zap();
   ++s_end_count;
   while (s_end_count != 2U);
