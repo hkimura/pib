@@ -67,6 +67,9 @@ FOREACH( MODULE_SOURCE_FILE ${MODULE_SOURCE_FILES} )
   )
 ENDFOREACH( MODULE_SOURCE_FILE )
 
+SET( KBUILD_COMMAND
+  ${CMAKE_MAKE_PROGRAM} -C ${KERNEL_DIR} M=${MODULE_OUTPUT_DIR} ${parallel_flag} modules
+)
 ADD_CUSTOM_COMMAND(
   OUTPUT ${MODULE_OUTPUT_DIR}/${MODULE_FILE}
   COMMAND ${KBUILD_COMMAND}
@@ -75,9 +78,6 @@ ADD_CUSTOM_COMMAND(
   VERBATIM
 )
 
-SET( KBUILD_COMMAND
-  ${CMAKE_MAKE_PROGRAM} -C ${KERNEL_DIR} M=${MODULE_OUTPUT_DIR} ${parallel_flag} modules
-)
 ADD_CUSTOM_TARGET(
   ${MODULE_NAME}
   ALL
@@ -85,11 +85,9 @@ ADD_CUSTOM_TARGET(
 )
 
 # To install the compiled .ko file,
-SET( KBUILD_INSTALL_COMMAND
-  sudo ${CMAKE_MAKE_PROGRAM} -C ${KERNEL_DIR} M=${MODULE_OUTPUT_DIR} ${parallel_flag} modules_install
-)
+CONFIGURE_FILE(modules_install_cmd.in ${MODULE_OUTPUT_DIR}/modules_install.sh)
 add_custom_target(modules_install
-  COMMAND ${KBUILD_INSTALL_COMMAND}
+  COMMAND ./modules_install.sh
   WORKING_DIRECTORY ${MODULE_OUTPUT_DIR}
   DEPENDS ${MODULE_NAME}
   COMMENT "This command installs the compiled .ko file to the kernel. **You must be a sudoer**"

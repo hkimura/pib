@@ -1,0 +1,1 @@
+sudo @CMAKE_MAKE_PROGRAM@ -C @KERNEL_DIR@ M=@MODULE_OUTPUT_DIR@ @parallel_flag@ modules_install

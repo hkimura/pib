@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const uint32_t kSize = 1U << 22;
+  const uint32_t kSize = 1U << 14;
   char* array = new char[kSize];
   for (int i = 0; dev_list[i]; i++) {
     ibv_device *device = dev_list[i];
@@ -40,6 +40,17 @@ int main(int argc, char **argv) {
     }
 
     std::cout << "  ok, opened device" << std::endl;
+
+    ibv_device_attr device_attr;
+    if (::ibv_query_device(context, &device_attr)) {
+      std::cerr << "  huh? ibv_query_device failed " << errno << std::endl;
+    } else {
+      std::cout << "  device_attr" << std::endl;
+      std::cout << "    .max_mr=" << device_attr.max_mr << std::endl;
+      std::cout << "    .max_mr_size=" << device_attr.max_mr_size << std::endl;
+      std::cout << "    .max_pd=" << device_attr.max_pd << std::endl;
+    }
+
     ibv_pd* pd = ::ibv_alloc_pd(context);
     if (pd) {
       std::cout << "  ok, created pd" << std::endl;

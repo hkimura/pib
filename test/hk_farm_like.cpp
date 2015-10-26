@@ -29,7 +29,7 @@
 #define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
 #endif  // MAP_HUGE_1GB
 
-const uint32_t kBufferSize = 1U << 21;
+const uint32_t kBufferSize = 1U << 14;
 const uint32_t kSendArray = 1U << 12;
 const char* kLocalNode = "127.0.0.1";
 const char* kIpPort = "4242";
@@ -161,19 +161,22 @@ struct SharedCircularBuffer {
 };
 
 struct InitPacket {
-  InitPacket() : buffer_addr_base_(0), buffer_rkey_(0), buffer_size_(0) {
+  InitPacket() : buffer_addr_base_(0), buffer_lkey_(0), buffer_rkey_(0), buffer_size_(0) {
   }
-  void set(const SharedCircularBuffer* buffer, const ibv_mr* buffer_mr) {
-    buffer_addr_base_ = reinterpret_cast<uintptr_t>(buffer);
+  void set(const ibv_mr* buffer_mr) {
+    buffer_addr_base_ = reinterpret_cast<uintptr_t>(buffer_mr->addr);
+    buffer_lkey_ = buffer_mr->lkey;
     buffer_rkey_ = buffer_mr->rkey;
     buffer_size_ = kBufferSize;
   }
   uint64_t buffer_addr_base_;
+  uint32_t buffer_lkey_;
   uint32_t buffer_rkey_;
-  uint32_t buffer_size_;
+  uint64_t buffer_size_;
 
   friend std::ostream& operator<<(std::ostream& o, const InitPacket& v) {
     o << "addr=0x" << std::hex << v.buffer_addr_base_
+      << ", lkey=0x" << std::hex << v.buffer_lkey_
       << ", rkey=0x" << std::hex << v.buffer_rkey_
       << ", size=0x" << std::hex << v.buffer_size_;
     return o;
@@ -441,7 +444,7 @@ int NodeThread::connect_to_server() {
 }
 
 int NodeThread::init_each_other(rdma_cm_id* other) {
-  my_init_packet_.set(container_.buffer_, recv_mr_.get());
+  my_init_packet_.set(recv_mr_.get());
   std::cout << name_ << ": my_init_pack=" << my_init_packet_ << std::endl;
 
   std::cout << name_ << ": rdma_post_recv..." << std::endl;
@@ -490,6 +493,11 @@ int NodeThread::init_each_other(rdma_cm_id* other) {
 
   zap();
   std::cout << name_ << ": other_init_pack=" << other_init_packet_ << std::endl;
+  if (other_init_packet_.buffer_lkey_ == 0 && other_init_packet_.buffer_rkey_ == 0) {
+    std::cerr << name_ << ": huh? still other_init_pack is empty. "
+      << other_init_packet_ << std::endl;
+    std::exit(1);
+  }
   return 0;
 }
 
