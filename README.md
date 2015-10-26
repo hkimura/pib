@@ -275,6 +275,64 @@ If you choose the latter, add the following two lines in the file /etc/security/
 
 Or you can also set it temporarily to do `ulimit -l unlimited`.
 
+Other gotchas (added by Hideaki)
+----------
+### Commands to start/stop pib (RHEL7/Fedora21~)
+
+    sudo systemctl stop pibnetd
+    sudo systemctl stop opensm
+    sudo modprobe -r pib
+
+    sudo systemctl start rdma
+    sudo modprobe pib
+    sudo systemctl start opensm
+    # see below for why
+    sudo chmod 666 /dev/infiniband/issm* /dev/infiniband/umad*
+
+
+    # now, try ibhosts and ibv_devinfo
+
+### ibhosts fails with: can't open UMAD port
+Was getting an error on ibhosts "can't open UMAD port ((null):0)".
+
+    [kimurhid@hkimura-z820 infiniband]$ ibhosts
+    src/query_smp.c:228; can't open UMAD port ((null):0)
+    /usr/sbin/ibnetdiscover: iberror: failed: discover failed
+
+Turns out that it's a permission issue of device files.
+Check file permissions under /dev/infiniband/
+
+    [kimurhid@hkimura-z820 infiniband]$ ls -al /dev/infiniband/
+    total 0
+    drwxr-xr-x.  2 root root      300 Oct 25 17:55 .
+    drwxr-xr-x. 22 root root     3780 Oct 23 16:49 ..
+    crw-------.  1 root root 231,  64 Oct 25 17:55 issm0
+    crw-------.  1 root root 231,  65 Oct 25 17:55 issm1
+    crw-------.  1 root root 231,  66 Oct 25 17:55 issm2
+    crw-------.  1 root root 231,  67 Oct 25 17:55 issm3
+    crw-rw-rw-.  1 root root  10,  57 Oct 23 16:49 rdma_cm
+    crw-rw-rw-.  1 root root 231, 224 Oct 25 17:55 ucm0
+    crw-rw-rw-.  1 root root 231, 225 Oct 25 17:55 ucm1
+    crw-------.  1 root root 231,   0 Oct 25 17:55 umad0
+    crw-------.  1 root root 231,   1 Oct 25 17:55 umad1
+    crw-------.  1 root root 231,   2 Oct 25 17:55 umad2
+    crw-------.  1 root root 231,   3 Oct 25 17:55 umad3
+    crw-rw-rw-.  1 root root 231, 192 Oct 25 17:55 uverbs0
+    crw-rw-rw-.  1 root root 231, 193 Oct 25 17:55 uverbs1
+
+umad* and issm* are not accessible to normal users, thus ibhosts failed.
+Change them to 666.
+
+    [kimurhid@hkimura-z820 infiniband]$ sudo chmod 666 issm* umad*
+    [kimurhid@hkimura-z820 infiniband]$ ibhosts
+    Ca      : 0x000af74093e80400 ports 2 "hkimura-z820 pib_1"
+    Ca      : 0x000af74093e80300 ports 2 "hkimura-z820 pib_0"
+
+I don't know whether this is a good practice.
+  http://lists.openfabrics.org/pipermail/users/2013-February/000095.html
+I do believe, however, this is a norm nowadays.
+All of my genuine Infiniband environments have these files under 666 (except issm).
+
 Future work
 ===========
 

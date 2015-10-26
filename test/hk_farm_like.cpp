@@ -81,22 +81,6 @@ class EpContainer {
   bool        needs_disconnect_;
 };
 
-const auto kCmIdDeleter = [](rdma_cm_id* p) { ::rdma_destroy_id(p); };
-class CmIdAutoDel : public std::unique_ptr< rdma_cm_id, decltype(kCmIdDeleter) > {
- public:
-  CmIdAutoDel()
-    : std::unique_ptr< rdma_cm_id, decltype(kCmIdDeleter) >(nullptr, kCmIdDeleter) {
-  }
-};
-
-const auto kDisconnect = [](rdma_cm_id* p) { ::rdma_disconnect(p); };
-class AutoDisconn : public std::unique_ptr< rdma_cm_id, decltype(kDisconnect) > {
- public:
-  AutoDisconn()
-    : std::unique_ptr< rdma_cm_id, decltype(kDisconnect) >(nullptr, kDisconnect) {
-  }
-};
-
 const auto kMrDeleter = [](ibv_mr* p) { ::ibv_dereg_mr(p); };
 class MrAutoDel : public std::unique_ptr< ibv_mr, decltype(kMrDeleter) > {
  public:
