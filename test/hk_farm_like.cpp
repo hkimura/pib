@@ -405,7 +405,7 @@ int NodeThread::reg_init_packets_mr(ibv_pd* pd) {
     sizeof(other_init_packet_),
     false,
     false,
-    &my_init_mr_);
+    &other_init_mr_);
   if (ret) {
     std::cerr << name_ << ": failed to reg other_init_packet_" << std::strerror(errno);
     return ret;
