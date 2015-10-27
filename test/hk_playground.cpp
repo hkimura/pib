@@ -2,8 +2,10 @@
 
 #include <inttypes.h>
 #include <errno.h>
+#include <unistd.h>
 #include <infiniband/verbs.h>
 
+#include <cstring>
 #include <iostream>
 
 int main(int argc, char **argv) {
@@ -24,8 +26,15 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  const uint32_t kSize = 1U << 14;
-  char* array = new char[kSize];
+  const uint32_t kSize = 1U << 15;
+  // char* array = reinterpret_cast<char*>(::posix_memalign(nullptr, 1U << 12, kSize)); // new char[kSize];
+  char* array;
+  int aaa = ::posix_memalign(reinterpret_cast<void**>(&array), 1U << 12, kSize);
+  if (aaa) {
+    std::cerr << "huh? posix_memalign: " << errno << std::endl;
+    std::exit(1);
+  }
+  std::memset(array, 0, kSize);
   for (int i = 0; dev_list[i]; i++) {
     ibv_device *device = dev_list[i];
     std::cout
@@ -71,7 +80,7 @@ int main(int argc, char **argv) {
     }
   }
   ::ibv_free_device_list(dev_list);
-  delete[] array;
+  free(array); // delete[] array;
 
   return 0;
 }

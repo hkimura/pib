@@ -7,6 +7,7 @@
  */
 #include <linux/module.h>
 #include <linux/init.h>
+#include <linux/sched.h>
 #include <linux/cpumask.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
@@ -1015,6 +1016,7 @@ static int parse_multi_host_mode(void)
 static int __init pib_init(void)
 {
 	int i, j, err = 0;
+  unsigned long aaa;
 
 	pr_info("pib: " PIB_DRIVER_DESCRIPTION " v" PIB_DRIVER_VERSION "\n");
 
@@ -1059,6 +1061,15 @@ static int __init pib_init(void)
 		pr_info("pib: multi-host-mode\n");
 	else
 		pr_info("pib: single-host-mode\n");
+
+  pr_info("yooooo\n");
+  aaa = rlimit(RLIMIT_MEMLOCK) >> PAGE_SHIFT;
+  pr_info("memlock val %ld\n", aaa);
+  if (capable(CAP_IPC_LOCK)) {
+    pr_info("capable(CAP_IPC_LOCK) YES\n");
+  } else {
+    pr_info("capable(CAP_IPC_LOCK) NO\n");
+  }
 
 	if (!pib_multi_host_mode) {
 		pib_lid_table = vzalloc(sizeof(struct sockaddr*) * PIB_MAX_LID);
